@@ -15,7 +15,6 @@ import json
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 
-import nolds
 import numpy as np
 import optuna
 import pandas as pd
@@ -46,11 +45,56 @@ def rolling_adf(
     return (values >= threshold).astype(int)
 
 
-def rolling_hurst(close: pd.Series, length: int, threshold: float = 0.75) -> pd.Series:
-    def test(window):
-        return float(nolds.mfhurst_b(window))
+def _hurst_rs(values: np.ndarray) -> float:
+    """Estimate the Hurst exponent with a simple rescaled-range regression.
 
-    values = close.rolling(length, min_periods=length).apply(test)
+    The calculation is intentionally compact and transparent for the portfolio
+    version of the project. It is a descriptive long-memory measure rather than
+    a precise structural estimator.
+    """
+    x = np.asarray(values, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size < 32:
+        return np.nan
+
+    # Work with changes so the level of the price series does not dominate R/S.
+    if np.all(x > 0):
+        changes = np.diff(np.log(x))
+    else:
+        changes = np.diff(x)
+
+    max_size = len(changes) // 2
+    sizes = [size for size in (8, 16, 32, 64, 128) if size <= max_size]
+    if len(sizes) < 2:
+        return np.nan
+
+    rs_points = []
+    used_sizes = []
+    for size in sizes:
+        ratios = []
+        for start in range(0, len(changes) - size + 1, size):
+            segment = changes[start : start + size]
+            std = segment.std(ddof=1)
+            if not np.isfinite(std) or std == 0:
+                continue
+            cumulative = np.cumsum(segment - segment.mean())
+            span = cumulative.max() - cumulative.min()
+            if span > 0:
+                ratios.append(span / std)
+
+        if ratios:
+            used_sizes.append(size)
+            rs_points.append(float(np.mean(ratios)))
+
+    if len(rs_points) < 2:
+        return np.nan
+
+    slope, _ = np.polyfit(np.log(used_sizes), np.log(rs_points), 1)
+    return float(slope)
+
+
+def rolling_hurst(close: pd.Series, length: int, threshold: float = 0.75) -> pd.Series:
+    values = close.rolling(length, min_periods=length).apply(_hurst_rs, raw=True)
     return (values >= threshold).astype(int)
 
 
