@@ -1,9 +1,9 @@
 """Trend-signal ensemble and robustness utilities.
 
 This module distills the useful parts of the original exploratory TPI research:
-combining modular trend signals, evaluating them with a simple vectorbt backtest,
-searching ensemble weights across several assets, and testing sensitivity with
-OHLC path permutations.
+combining modular trend signals, tuning indicator parameters across several
+assets, searching ensemble weights, and testing sensitivity with OHLC path
+permutations.
 
 The code is intended for research and portfolio demonstration, not live trading.
 """
@@ -22,7 +22,11 @@ from dask.distributed import Client
 from . import indicators
 
 
-def monte_carlo_ohlc(ohlc: pd.DataFrame, n_simulations: int = 100, seed: int | None = None) -> list[pd.DataFrame]:
+def monte_carlo_ohlc(
+    ohlc: pd.DataFrame,
+    n_simulations: int = 100,
+    seed: int | None = None,
+) -> list[pd.DataFrame]:
     """Create synthetic OHLC paths by permuting inter- and intra-bar log returns.
 
     This preserves the empirical building blocks of the observed bars while
@@ -37,7 +41,8 @@ def monte_carlo_ohlc(ohlc: pd.DataFrame, n_simulations: int = 100, seed: int | N
         raise ValueError("At least three rows are required for path permutation.")
 
     rng = np.random.default_rng(seed)
-    log_data = np.log(ohlc[list(required)].astype(float))
+    ordered_columns = ["open", "high", "low", "close"]
+    log_data = np.log(ohlc[ordered_columns].astype(float))
 
     delta_h = (log_data["high"] - log_data["open"]).to_numpy()
     delta_l = (log_data["low"] - log_data["open"]).to_numpy()
@@ -114,8 +119,9 @@ def portfolio_metrics(portfolio) -> dict[str, float]:
 def research_score(portfolio) -> float:
     """Heuristic score used to compare configurations inside the experiments.
 
-    It intentionally combines several risk/return diagnostics rather than
-    presenting any one metric as proof of a superior strategy.
+    The constants reflect the original exploratory scoring logic. This score is
+    useful for ranking candidate configurations inside the project; it is not a
+    theoretically optimal objective or evidence of expected live performance.
     """
     metrics = portfolio_metrics(portfolio)
     values = np.array(
@@ -135,7 +141,7 @@ def research_score(portfolio) -> float:
 
 @dataclass
 class SignalModel:
-    """Small wrapper around an indicator function and its parameter dictionary."""
+    """Wrapper around one directional indicator and its parameter dictionary."""
 
     name: str
     function: Callable
@@ -143,24 +149,102 @@ class SignalModel:
 
     def calculate(self, data: pd.DataFrame) -> pd.Series:
         if self.name == "trendilo":
-            return self.function(data.close, data.hl2, **self.params)
+            hl2 = data["hl2"] if "hl2" in data else (data["high"] + data["low"]) / 2
+            return self.function(data.close, hl2, **self.params)
         if self.name in {"dema_dmi", "vii_stop", "lsma_atr"}:
             return self.function(data.close, data.high, data.low, **self.params)
         return self.function(data.close, **self.params)
 
 
-DEFAULT_MODELS = [
-    SignalModel("trendilo", indicators.trendilo, {}),
-    SignalModel("dema_dmi", indicators.dema_dmi, {}),
-    SignalModel("kama", indicators.kama, {}),
-    SignalModel("stc", indicators.stc, {}),
-    SignalModel("vii_stop", indicators.vii_stop, {}),
-    SignalModel("rti", indicators.rti, {}),
-    SignalModel("lrsi", indicators.lrsi, {}),
-    SignalModel("lsma_atr", indicators.lsma_atr, {}),
-    SignalModel("hullloop", indicators.hullloop, {}),
-    SignalModel("aamdmom", indicators.aamdmom, {}),
-]
+MODEL_FUNCTIONS: dict[str, Callable] = {
+    "trendilo": indicators.trendilo,
+    "dema_dmi": indicators.dema_dmi,
+    "kama": indicators.kama,
+    "stc": indicators.stc,
+    "vii_stop": indicators.vii_stop,
+    "rti": indicators.rti,
+    "lrsi": indicators.lrsi,
+    "lsma_atr": indicators.lsma_atr,
+    "hullloop": indicators.hullloop,
+    "aamdmom": indicators.aamdmom,
+}
+
+DEFAULT_MODELS = [SignalModel(name, function, {}) for name, function in MODEL_FUNCTIONS.items()]
+
+
+def _suggest_model_params(trial: optuna.Trial, model_name: str) -> dict:
+    """Suggest parameters using the search ranges from the legacy experiments."""
+    prefix = lambda name: f"{model_name}__{name}"
+
+    if model_name == "trendilo":
+        return {
+            "lsma_length": trial.suggest_int(prefix("lsma_length"), 10, 70),
+            "offset": trial.suggest_int(prefix("offset"), -10, 10),
+            "smooth": trial.suggest_int(prefix("smooth"), 5, 15),
+            "hma_length": trial.suggest_int(prefix("hma_length"), 50, 150),
+        }
+    if model_name == "dema_dmi":
+        return {
+            "len_dema": trial.suggest_int(prefix("len_dema"), 10, 90),
+            "adx_smoothing_len": trial.suggest_int(prefix("adx_smoothing_len"), 2, 12),
+            "di_len": trial.suggest_int(prefix("di_len"), 2, 102),
+        }
+    if model_name == "kama":
+        return {
+            "fast_period": trial.suggest_int(prefix("fast_period"), 2, 20),
+            "slow_period": trial.suggest_int(prefix("slow_period"), 10, 100),
+            "er_period": trial.suggest_int(prefix("er_period"), 2, 10),
+            "norm_period": trial.suggest_int(prefix("norm_period"), 10, 100),
+        }
+    if model_name == "stc":
+        return {
+            "stc_length": trial.suggest_int(prefix("stc_length"), 10, 80),
+            "fast_length": trial.suggest_int(prefix("fast_length"), 10, 40),
+            "slow_length": trial.suggest_int(prefix("slow_length"), 40, 100),
+            "factor": trial.suggest_float(prefix("factor"), 0.01, 0.5),
+        }
+    if model_name == "vii_stop":
+        return {
+            "length": trial.suggest_int(prefix("length"), 10, 100),
+            "multiplier": trial.suggest_float(prefix("multiplier"), 2.0, 4.0),
+        }
+    if model_name == "rti":
+        return {
+            "trend_data_count": trial.suggest_int(prefix("trend_data_count"), 50, 150),
+            "trend_sensitivity_percentage": trial.suggest_int(prefix("trend_sensitivity_percentage"), 80, 98),
+            "signal_length": trial.suggest_int(prefix("signal_length"), 10, 30),
+            "long_threshold": trial.suggest_int(prefix("long_threshold"), 50, 80),
+            "short_threshold": trial.suggest_int(prefix("short_threshold"), 30, 50),
+        }
+    if model_name == "lrsi":
+        return {
+            "alpha": trial.suggest_float(prefix("alpha"), 0.1, 0.3),
+            "long_threshold": trial.suggest_float(prefix("long_threshold"), 0.5, 0.8),
+            "short_threshold": trial.suggest_float(prefix("short_threshold"), 0.3, 0.5),
+        }
+    if model_name == "lsma_atr":
+        return {
+            "len_lsma": trial.suggest_int(prefix("len_lsma"), 50, 100),
+            "len_atr": trial.suggest_int(prefix("len_atr"), 10, 50),
+            "atr_multiplier": trial.suggest_float(prefix("atr_multiplier"), 0.5, 2.5),
+        }
+    if model_name == "hullloop":
+        return {
+            "length": trial.suggest_int(prefix("length"), 4, 15),
+            "a": trial.suggest_int(prefix("a"), 1, 10),
+            "b": trial.suggest_int(prefix("b"), 45, 55),
+        }
+    if model_name == "aamdmom":
+        return {
+            "len_momentum": trial.suggest_int(prefix("len_momentum"), 4, 15),
+            "len_percentile": trial.suggest_int(prefix("len_percentile"), 40, 60),
+        }
+    raise KeyError(f"No parameter search space defined for {model_name!r}.")
+
+
+def _params_from_flat_dict(flat_params: dict[str, float | int], model_name: str) -> dict:
+    prefix = f"{model_name}__"
+    return {key.removeprefix(prefix): value for key, value in flat_params.items() if key.startswith(prefix)}
 
 
 class TrendEnsemble:
@@ -185,6 +269,8 @@ class TrendEnsemble:
     def signal(self, data: pd.DataFrame, weights: Sequence[float] | None = None) -> pd.Series:
         components = self.component_signals(data)
         use_weights = self.weights if weights is None else np.asarray(weights, dtype=float)
+        if len(use_weights) != len(self.models) or use_weights.sum() <= 0:
+            raise ValueError("Weights must match the number of models and sum to a positive value.")
         use_weights = use_weights / use_weights.sum()
         weighted = components.to_numpy() @ use_weights
         return pd.Series(np.sign(weighted), index=data.index).replace(0, np.nan).ffill()
@@ -192,8 +278,58 @@ class TrendEnsemble:
     def backtest(self, data: pd.DataFrame, allow_shorts: bool = True):
         return backtest_signals(data, self.signal(data), allow_shorts=allow_shorts)
 
-    def optimize_weights(self, datasets: Sequence[pd.DataFrame], n_trials: int = 100) -> tuple[np.ndarray, float]:
+    def optimize_parameters(
+        self,
+        datasets: Sequence[pd.DataFrame],
+        n_trials: int = 100,
+    ) -> tuple[dict[str, dict], float]:
+        """Tune the selected models' parameters against the mean cross-asset score.
+
+        This restores the first optimization layer from the legacy TPI research.
+        The model subset is now chosen explicitly when constructing the ensemble
+        instead of being sampled randomly inside the optimizer.
+        """
+        if not datasets:
+            raise ValueError("At least one dataset is required.")
+
+        client = Client()
+
+        def score_dataset(data: pd.DataFrame, candidate_models: list[SignalModel]) -> float:
+            candidate = TrendEnsemble(candidate_models)
+            signal = candidate.signal(data)
+            portfolio = backtest_signals(data, signal, allow_shorts=True)
+            return research_score(portfolio)
+
+        def objective(trial: optuna.Trial) -> float:
+            candidate_models = [
+                SignalModel(model.name, model.function, _suggest_model_params(trial, model.name))
+                for model in self.models
+            ]
+            futures = [client.submit(score_dataset, data, candidate_models) for data in datasets]
+            return float(np.mean(client.gather(futures)))
+
+        try:
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+            study = optuna.create_study(direction="maximize")
+            study.optimize(objective, n_trials=n_trials)
+            best = {
+                model.name: _params_from_flat_dict(study.best_params, model.name)
+                for model in self.models
+            }
+            self.models = [SignalModel(model.name, model.function, best[model.name]) for model in self.models]
+            return best, float(study.best_value)
+        finally:
+            client.close()
+
+    def optimize_weights(
+        self,
+        datasets: Sequence[pd.DataFrame],
+        n_trials: int = 100,
+    ) -> tuple[np.ndarray, float]:
         """Search one normalized weight vector across several assets."""
+        if not datasets:
+            raise ValueError("At least one dataset is required.")
+
         client = Client()
 
         def score_dataset(data: pd.DataFrame, weights: np.ndarray) -> float:
@@ -221,7 +357,12 @@ class TrendEnsemble:
         finally:
             client.close()
 
-    def monte_carlo_scores(self, data: pd.DataFrame, n_simulations: int = 100, seed: int | None = None) -> pd.Series:
+    def monte_carlo_scores(
+        self,
+        data: pd.DataFrame,
+        n_simulations: int = 100,
+        seed: int | None = None,
+    ) -> pd.Series:
         """Evaluate the fixed ensemble on permuted OHLC paths."""
         scores = []
         for simulated in monte_carlo_ohlc(data, n_simulations=n_simulations, seed=seed):
