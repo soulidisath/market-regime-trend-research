@@ -21,8 +21,10 @@ The repository is a cleaned presentation of exploratory work developed while stu
 - combines multiple trend indicators into composite signals;
 - evaluates simple long/short backtests with `vectorbt`;
 - compares configurations using drawdown, Sharpe, Sortino, Omega ratio, profit factor, and win rate;
-- searches indicator parameters and ensemble weights with **Optuna**; and
+- searches **ensemble weights** across multiple datasets with Optuna; and
 - supports parallel cross-asset evaluation with **Dask**.
+
+The original exploratory `TPI.py` also contained a separate search over indicator combinations and indicator parameters. That legacy optimization layer is being audited before inclusion here rather than being presented as reproducible before it has been cleaned and verified.
 
 The underlying indicator implementations are in `src/indicators.py`. Several were adapted from public TradingView indicator ideas; links to the original scripts are retained in the relevant docstrings rather than presenting every formula as original work.
 
