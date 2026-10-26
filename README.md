@@ -33,11 +33,11 @@ The underlying indicator implementations are in `src/indicators.py`. Several wer
 
 #### Historical research visualization
 
-The figure below is a saved output from the original exploratory TPI work. The upper panel shows price with changes in the aggregate directional state; the lower panel shows the individual indicator votes through time.
+The figure below is based on a saved output from the original exploratory TPI work. The upper panel shows price with changes in the aggregate directional state; the lower panel shows the individual indicator votes through time.
 
-![Legacy TPI research visualization](https://github.com/user-attachments/assets/835c6471-a655-4eb7-a345-fed6e9a0bfa8)
+![Legacy TPI research visualization](docs/legacy_tpi_research.svg)
 
-This image is retained as a historical research artifact. The cleaned code in this repository preserves the underlying ensemble and tuning ideas, but it is **not claimed to reproduce this legacy figure bit-for-bit**.
+The original saved chart was vectorized for reliable repository rendering. It is retained as a historical research artifact; the cleaned code preserves the underlying ensemble and tuning ideas, but it is **not claimed to reproduce this legacy figure bit-for-bit**.
 
 ### 2. Market Regime Indicator (MRI)
 
@@ -108,6 +108,8 @@ Any such search should be evaluated on separate untouched data if the purpose is
 │       └── generate-example-figures.yml
 ├── README.md
 ├── requirements.txt
+├── docs/
+│   └── legacy_tpi_research.svg
 ├── examples/
 │   ├── README.md
 │   ├── btc_usd_demo.py
