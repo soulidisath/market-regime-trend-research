@@ -1,6 +1,6 @@
 # Examples
 
-This directory contains small reproducible examples built from the cleaned research modules.
+This directory contains small examples built from the cleaned research modules.
 
 ## BTC-USD regime example
 
@@ -17,6 +17,16 @@ python examples/btc_usd_demo.py
 
 The example uses fixed representative parameters from the ranges explored in the original research. It does **not** re-optimize them on BTC-USD before plotting. The figures are descriptive diagnostics of the regime-classification logic, not evidence of trading profitability.
 
-A GitHub Actions workflow also reruns this example after relevant source changes and refreshes the generated figures when the output changes.
+A GitHub Actions workflow reruns this example after relevant source changes and refreshes the generated figures when the output changes.
 
-The original work was developed across exploratory notebooks. Rather than publishing notebooks with stale local paths and hidden state, the core methods were moved into `src/` and the examples here are intended to be runnable from a clean environment.
+## Trend-ensemble example
+
+`trend_ensemble_demo.py` downloads BTC-USD and visualizes the cleaned multi-indicator ensemble using fixed default parameters. It generates a price/state-change chart and a panel of the individual directional votes.
+
+```bash
+python examples/trend_ensemble_demo.py
+```
+
+This script deliberately does **not** tune the model on BTC-USD immediately before displaying the same period. The separate research methods `TrendEnsemble.optimize_parameters()` and `TrendEnsemble.optimize_weights()` can be used on explicitly chosen training datasets when running optimization experiments.
+
+The original TPI work was developed across exploratory notebooks and scripts. Rather than publish those files with stale local state, broken helper calls, and hidden assumptions, the core methods have been moved into `src/` and rewritten around explicit inputs.
