@@ -9,6 +9,7 @@ TA-Lib
 vectorbt
 optuna
 dask[distributed]
+matplotlib
 plotly
 yfinance
 tqdm
