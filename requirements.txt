@@ -4,7 +4,6 @@ scipy
 statsmodels
 arch
 nolds
-pandas-ta
 TA-Lib
 vectorbt
 optuna
