@@ -19,7 +19,6 @@ import nolds
 import numpy as np
 import optuna
 import pandas as pd
-import pandas_ta as ta
 from arch.unitroot import PhillipsPerron
 from dask.distributed import Client
 from statsmodels.tsa import stattools
@@ -56,8 +55,48 @@ def rolling_hurst(close: pd.Series, length: int, threshold: float = 0.75) -> pd.
 
 
 def rolling_adx(data: pd.DataFrame, length: int, threshold: float = 20.0) -> pd.Series:
-    values = ta.adx(data.high, data.low, data.close, length=length)[f"ADX_{length}"]
-    return (values > threshold).astype(int)
+    """Return a binary ADX trend-strength vote using Wilder-style smoothing.
+
+    This implementation keeps the example self-contained and avoids depending on
+    a third-party technical-analysis wrapper for a single indicator.
+    """
+    high = data.high.astype(float)
+    low = data.low.astype(float)
+    close = data.close.astype(float)
+
+    up_move = high.diff()
+    down_move = -low.diff()
+
+    plus_dm = pd.Series(
+        np.where((up_move > down_move) & (up_move > 0), up_move, 0.0),
+        index=data.index,
+    )
+    minus_dm = pd.Series(
+        np.where((down_move > up_move) & (down_move > 0), down_move, 0.0),
+        index=data.index,
+    )
+
+    true_range = pd.concat(
+        [
+            high - low,
+            (high - close.shift()).abs(),
+            (low - close.shift()).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+
+    alpha = 1.0 / length
+    atr = true_range.ewm(alpha=alpha, adjust=False, min_periods=length).mean()
+    plus_smoothed = plus_dm.ewm(alpha=alpha, adjust=False, min_periods=length).mean()
+    minus_smoothed = minus_dm.ewm(alpha=alpha, adjust=False, min_periods=length).mean()
+
+    plus_di = 100 * plus_smoothed / atr.replace(0, np.nan)
+    minus_di = 100 * minus_smoothed / atr.replace(0, np.nan)
+    denominator = (plus_di + minus_di).replace(0, np.nan)
+    dx = 100 * (plus_di - minus_di).abs() / denominator
+    adx = dx.ewm(alpha=alpha, adjust=False, min_periods=length).mean()
+
+    return (adx > threshold).astype(int)
 
 
 def rolling_pp(
