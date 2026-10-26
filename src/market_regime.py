@@ -16,10 +16,8 @@ import warnings
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-import optuna
 import pandas as pd
 from arch.unitroot import PhillipsPerron
-from dask.distributed import Client
 from statsmodels.tsa import stattools
 
 
@@ -57,7 +55,6 @@ def _hurst_rs(values: np.ndarray) -> float:
     if x.size < 32:
         return np.nan
 
-    # Work with changes so the level of the price series does not dominate R/S.
     if np.all(x > 0):
         changes = np.diff(np.log(x))
     else:
@@ -99,11 +96,7 @@ def rolling_hurst(close: pd.Series, length: int, threshold: float = 0.75) -> pd.
 
 
 def rolling_adx(data: pd.DataFrame, length: int, threshold: float = 20.0) -> pd.Series:
-    """Return a binary ADX trend-strength vote using Wilder-style smoothing.
-
-    This implementation keeps the example self-contained and avoids depending on
-    a third-party technical-analysis wrapper for a single indicator.
-    """
+    """Return a binary ADX trend-strength vote using Wilder-style smoothing."""
     high = data.high.astype(float)
     low = data.low.astype(float)
     close = data.close.astype(float)
@@ -253,7 +246,14 @@ class MarketRegimeIndicator:
 def optimize_regime_parameters(
     data_by_asset: list[pd.DataFrame], n_trials: int = 100
 ) -> tuple[float, dict[str, float | int]]:
-    """Search one parameter set across several assets using Optuna + Dask."""
+    """Search one parameter set across several assets using Optuna + Dask.
+
+    Optuna and Dask are imported lazily because they are only required for this
+    optimization routine, not for ordinary regime calculation.
+    """
+    import optuna
+    from dask.distributed import Client
+
     client = Client()
 
     def objective(trial: optuna.Trial) -> float:
