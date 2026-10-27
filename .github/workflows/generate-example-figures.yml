@@ -1,21 +1,18 @@
-name: Generate example figures
+name: Validate BTC regime example
 
 on:
   push:
     paths:
-      - "examples/sp500_futures_regime_demo.py"
-      - "examples/wti_trend_ensemble_demo.py"
+      - "examples/btc_usd_demo.py"
       - "src/market_regime.py"
-      - "src/trend_ensemble.py"
-      - "src/indicators.py"
       - ".github/workflows/generate-example-figures.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  generate:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -26,32 +23,60 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install example dependencies
+      - name: Install minimal validation dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install "numpy<2" "pandas<3" scipy statsmodels arch matplotlib yfinance TA-Lib vectorbt optuna "dask[distributed]"
+          pip install "numpy<2" "pandas<3" scipy statsmodels arch
 
-      - name: Generate figures
-        run: |
-          python examples/sp500_futures_regime_demo.py
-          python examples/wti_trend_ensemble_demo.py
+      - name: Compile research code
+        run: python -m compileall -q src examples
 
-      - name: Commit refreshed figures
+      - name: Smoke-test Market Regime Indicator
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add examples/output/*.png
-          if git diff --cached --quiet; then
-            echo "No figure changes to commit."
-          else
-            git commit -m "Refresh reproducible example figures"
-            for attempt in 1 2 3; do
-              git fetch origin main
-              git rebase origin/main
-              if git push origin HEAD:main; then
-                exit 0
-              fi
-              sleep 2
-            done
-            exit 1
-          fi
+          python - <<'PY'
+          import numpy as np
+          import pandas as pd
+
+          from src.market_regime import MarketRegimeIndicator
+
+          rng = np.random.default_rng(42)
+          n = 240
+          index = pd.date_range("2024-01-01", periods=n, freq="D")
+          returns = 0.0008 + 0.006 * np.sin(np.arange(n) / 13.0) + rng.normal(0, 0.012, n)
+          close = 100 * np.exp(np.cumsum(returns))
+          spread = np.maximum(0.0025 * close, rng.uniform(0.15, 0.45, n))
+
+          data = pd.DataFrame(
+              {
+                  "open": np.r_[close[0], close[:-1]],
+                  "high": close + spread,
+                  "low": close - spread,
+                  "close": close,
+              },
+              index=index,
+          )
+
+          params = {
+              "adf_length": 60,
+              "adf_threshold": -1.5,
+              "kpss_length": 60,
+              "kpss_threshold": 1.0,
+              "hurst_length": 60,
+              "hurst_threshold": 0.50,
+              "adx_length": 14,
+              "adx_threshold": 22.0,
+              "pp_length": 60,
+              "pp_threshold": -1.75,
+          }
+
+          mri, indicators, score = MarketRegimeIndicator(params).calculate(data)
+
+          assert len(mri) == len(data)
+          assert set(indicators) == {"adf", "kpss", "hurst", "adx", "pp"}
+          assert mri.dropna().between(0.0, 1.0).all()
+          for name, series in indicators.items():
+              values = set(series.dropna().astype(int).unique())
+              assert values.issubset({0, 1}), (name, values)
+
+          print(f"Validated {len(data)} synthetic OHLC rows; heuristic score={score:.4f}")
+          PY
