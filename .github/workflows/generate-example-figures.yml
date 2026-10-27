@@ -3,8 +3,11 @@ name: Generate example figures
 on:
   push:
     paths:
-      - "examples/btc_usd_demo.py"
+      - "examples/sp500_futures_regime_demo.py"
+      - "examples/wti_trend_ensemble_demo.py"
       - "src/market_regime.py"
+      - "src/trend_ensemble.py"
+      - "src/indicators.py"
       - ".github/workflows/generate-example-figures.yml"
   workflow_dispatch:
 
@@ -26,10 +29,12 @@ jobs:
       - name: Install example dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy pandas statsmodels arch matplotlib yfinance
+          pip install "numpy<2" "pandas<3" scipy statsmodels arch matplotlib yfinance TA-Lib vectorbt optuna "dask[distributed]"
 
       - name: Generate figures
-        run: python examples/btc_usd_demo.py
+        run: |
+          python examples/sp500_futures_regime_demo.py
+          python examples/wti_trend_ensemble_demo.py
 
       - name: Commit refreshed figures
         run: |
@@ -40,5 +45,13 @@ jobs:
             echo "No figure changes to commit."
           else
             git commit -m "Refresh reproducible example figures"
-            git push
+            for attempt in 1 2 3; do
+              git fetch origin main
+              git rebase origin/main
+              if git push origin HEAD:main; then
+                exit 0
+              fi
+              sleep 2
+            done
+            exit 1
           fi
