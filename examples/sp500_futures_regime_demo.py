@@ -31,7 +31,6 @@ START = "2021-01-01"
 END = "2026-01-01"
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
-# Representative fixed parameters from the ranges explored in the original work.
 MRI_PARAMS = {
     "adf_length": 100,
     "adf_threshold": -1.5,
@@ -130,7 +129,11 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     data = load_ohlc()
     model = MarketRegimeIndicator(MRI_PARAMS)
-    mri, indicators, score = model.calculate(data)
+
+    result = model.calculate(data)
+    mri = result[0]
+    indicators = result[1]
+    score = result[2]
 
     plot_regimes(data, mri)
     plot_components(indicators)
