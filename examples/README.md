@@ -17,7 +17,7 @@ python examples/btc_usd_demo.py
 
 The example uses fixed representative parameters from the ranges explored in the original research. It does **not** re-optimize them on BTC-USD before plotting. The figures are descriptive diagnostics of the regime-classification logic, not evidence of trading profitability.
 
-A GitHub Actions workflow reruns this example after relevant source changes and refreshes the generated figures when the output changes.
+The GitHub Actions workflow validates the Market Regime Indicator on deterministic synthetic OHLC data. This keeps CI independent of live data-download availability; the committed BTC figures remain the visible market-data example and can be regenerated locally with the command above.
 
 ## Trend-ensemble example
 
